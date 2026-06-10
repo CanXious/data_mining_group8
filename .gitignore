@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.venv/
+venv/
+
+# Raw data is downloaded by the analysis script.
+data/raw/
+
+# Local/editor files.
+.DS_Store
+Thumbs.db

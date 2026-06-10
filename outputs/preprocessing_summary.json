@@ -1,0 +1,29 @@
+{
+  "raw_rows_2018_2023": 21051,
+  "rows_after_year_filter": 21051,
+  "rows_after_reporting_status": 15915,
+  "rows_after_core_non_null": 15242,
+  "rows_removed_by_outlier_rule_1_to_500": 65,
+  "rows_after_outlier_filter": 15177,
+  "distinct_buildings_after_filter": 3312,
+  "rows_by_year_after_filter": {
+    "2018": 2724,
+    "2019": 2050,
+    "2020": 2844,
+    "2021": 2512,
+    "2022": 2468,
+    "2023": 2579
+  },
+  "target_summary_after_filter": {
+    "mean": 87.92974237332807,
+    "median": 77.7,
+    "std": 48.815654284343374,
+    "min": 1.2,
+    "max": 498.0
+  },
+  "split_rows": {
+    "train_2018_2021": 10130,
+    "validation_2022": 2468,
+    "test_2023": 2579
+  }
+}
