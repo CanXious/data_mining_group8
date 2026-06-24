@@ -16,13 +16,12 @@ Data:
 
 ## 2. External Feature Ablation
 
-Purpose: compare the base model against weather, building footprints, building permits, socioeconomic/occupancy variables, ACS tract variables, and combined external feature sets.
+Purpose: compare the base model against weather, building footprints, building permits, ACS tract socioeconomic/occupancy variables, and combined external feature sets.
 
 Code:
 
 - `src/compare_external_features.py`
 - `src/run_all_external_feature_comparison.py`
-- `src/run_socioeconomic_occupancy_comparison.py`
 - `src/run_acs_tract_socioeconomic_occupancy_comparison.py`
 
 Data:
@@ -32,7 +31,6 @@ Data:
 - `data/raw/permits/chicago_building_permits_2015_2022_selected.csv`
 - `data/raw/socioeconomic/`
 - `data/processed/external_features/external_weather_features_2018_2023.csv`
-- `data/processed/external_features/external_socioeconomic_occupancy_features_community_area.csv`
 - `data/processed/external_features/external_acs_tract_lookup_2018_2023.csv`
 - `data/processed/external_features/external_acs_tract_socioeconomic_occupancy_features_2018_2023.csv`
 

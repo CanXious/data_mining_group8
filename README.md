@@ -26,7 +26,7 @@ It intentionally excludes generated reports, PDFs, plots, logs, cached bytecode,
 ```text
 code/
   base_model/                  base workflow copy
-  external_ablation/           weather, footprints, permits, socioeconomic, ACS experiments
+  external_ablation/           weather, footprints, permits, and ACS tract experiments
   aligned_experiments/         complete-aligned and footprint-aligned experiments
   high_eui_experiments/        high-EUI and two-stage experiments
 src/                           runnable source tree
@@ -54,7 +54,6 @@ Use root-level `src/` for execution because the scripts expect the repository ro
 | Base model | `python model.py` |
 | Weather, footprints, permits ablation | `python src/compare_external_features.py` |
 | All external features | `python src/run_all_external_feature_comparison.py` |
-| Community-area socioeconomic external ablation | `python src/run_socioeconomic_occupancy_comparison.py` |
 | ACS tract socioeconomic external ablation | `python src/run_acs_tract_socioeconomic_occupancy_comparison.py` |
 | Weather subgroup error analysis | `python src/analyze_weather_subgroup_errors.py` |
 | Complete aligned external comparison | `python src/run_aligned_external_feature_comparison.py` |
@@ -71,13 +70,13 @@ Raw data includes cached source extracts from:
 - Open-Meteo historical weather
 - Chicago Building Footprints
 - Chicago Building Permits
-- ACS/Census tract data and Chicago selected socioeconomic indicators
+- ACS/Census tract data
 
 Processed data includes:
 
 - base modeling table
 - annual weather features
-- ACS tract lookup and socioeconomic features
+- ACS tract lookup and ACS socioeconomic features
 - complete-aligned external modeling table
 - footprint-aligned modeling table
 
