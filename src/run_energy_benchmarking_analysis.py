@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import math
 import random
-import textwrap
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -20,6 +19,11 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.ensemble import RandomForestRegressor
 from xgboost import XGBRegressor
+
+try:
+    from document_generation.main_report_generator import write_report as write_main_report
+except ModuleNotFoundError:
+    write_main_report = None
 
 
 RANDOM_STATE = 42
@@ -560,241 +564,6 @@ def save_feature_importance_plot(fi: pd.DataFrame, path: Path, top_n: int = 20) 
     plt.close()
 
 
-def markdown_table(df: pd.DataFrame, columns: list[str], float_digits: int = 4) -> str:
-    out = df[columns].copy()
-    for col in out.select_dtypes(include=[np.number]).columns:
-        out[col] = out[col].map(lambda x: f"{x:.{float_digits}f}" if pd.notna(x) else "")
-    out = out.fillna("")
-    headers = [str(col) for col in out.columns]
-    rows = [[str(value) for value in row] for row in out.to_numpy()]
-    widths = [
-        max(len(headers[i]), *(len(row[i]) for row in rows)) if rows else len(headers[i])
-        for i in range(len(headers))
-    ]
-
-    def fmt_row(values: list[str]) -> str:
-        return "| " + " | ".join(value.ljust(widths[i]) for i, value in enumerate(values)) + " |"
-
-    separator = "| " + " | ".join("-" * widths[i] for i in range(len(headers))) + " |"
-    return "\n".join([fmt_row(headers), separator, *[fmt_row(row) for row in rows]])
-
-
-def write_report(
-    summary: dict,
-    validation_metrics: pd.DataFrame,
-    test_metrics: pd.DataFrame,
-    best_params: dict,
-    best_model_name: str,
-    community_error: pd.DataFrame,
-    building_error: pd.DataFrame,
-    feature_importance: pd.DataFrame,
-    tuning_results: pd.DataFrame,
-) -> None:
-    report_path = REPORT_DIR / "chicago_energy_benchmarking_report.md"
-
-    selected_test = test_metrics.loc[test_metrics["model"].eq(best_model_name)].iloc[0]
-    best_test_overall = test_metrics.sort_values("rmse").iloc[0]
-    baseline_test = test_metrics.loc[test_metrics["model"].eq("Group Mean Baseline")].iloc[0]
-    selected_rmse_improvement = (baseline_test["rmse"] - selected_test["rmse"]) / baseline_test["rmse"] * 100
-    selected_mae_improvement = (baseline_test["mae"] - selected_test["mae"]) / baseline_test["mae"] * 100
-    best_test_rmse_improvement = (baseline_test["rmse"] - best_test_overall["rmse"]) / baseline_test["rmse"] * 100
-    best_test_mae_improvement = (baseline_test["mae"] - best_test_overall["mae"]) / baseline_test["mae"] * 100
-
-    top_communities_actual = (
-        community_error.sort_values("actual_mean_eui", ascending=False)
-        .head(5)[["community_area_clean", "n", "actual_mean_eui", "mae", "bias_mean_pred_minus_actual"]]
-    )
-    top_types_actual = (
-        building_error.sort_values("actual_mean_eui", ascending=False)
-        .head(5)[["primary_property_type_clean", "n", "actual_mean_eui", "mae", "bias_mean_pred_minus_actual"]]
-    )
-
-    year_table = pd.DataFrame(
-        {
-            "year": list(summary["rows_by_year_after_filter"].keys()),
-            "records": list(summary["rows_by_year_after_filter"].values()),
-        }
-    )
-
-    report = f"""# Predicting Building Energy Use Intensity in Chicago via Spatio-Temporal Data Mining
-
-## 1. 研究目標
-
-本專案使用 Chicago Energy Benchmarking 資料，建立一個 regression model 來預測建築物年度 `Site EUI (kBtu/sq ft)`。分析單位是 **building-year record**，也就是一棟建築在某一年的能源表現。研究問題是：芝加哥不同 community area、不同 building type、不同年份的建築能源使用強度是否存在可學習的時空模式。
-
-此任務屬於 spatio-temporal predictive analytics。空間面向來自 `community_area`、`zip_code`、`latitude`、`longitude`；時間面向來自 `data_year`、前一年 EUI、歷史 rolling/aggregate EUI，以及政策成熟階段。
-
-資料來源：[{DATASET_PAGE}]({DATASET_PAGE})
-
-## 2. 資料範圍與前處理
-
-主實驗選取 **2018-2023**。2014-2017 是芝加哥 benchmarking 政策逐步導入期，樣本數較不穩定，因此沒有納入主模型訓練。2018-2023 原始下載筆數為 **{summary["raw_rows_2018_2023"]:,}**，完成篩選後剩下 **{summary["rows_after_outlier_filter"]:,}** 筆、**{summary["distinct_buildings_after_filter"]:,}** 棟建築。
-
-資料篩選與清理規則：
-
-1. 只保留 `data_year` 介於 2018-2023 的紀錄。
-2. 只保留 `reporting_status` 為 `Submitted` 或 `Submitted Data` 的紀錄。
-3. 移除 `Site EUI`、`gross_floor_area_buildings_sq_ft`、`primary_property_type`、`community_area`、`latitude`、`longitude` 缺失的紀錄。
-4. 統一 `community_area` 大小寫，避免 `LOOP` 與 `Loop` 被視為不同區域。
-5. Outlier 處理：只保留 `1 <= Site EUI <= 500`。此規則移除 **{summary["rows_removed_by_outlier_rule_1_to_500"]:,}** 筆極端值。
-6. Leakage 處理：不把當年度能源消耗或能源表現結果類欄位放入模型，包括 `{", ".join(LEAKAGE_FIELDS_EXCLUDED)}`。這些欄位與目標 `Site EUI` 同時或事後產生，若納入模型會造成不合理的高估表現。
-
-篩選後各年份筆數：
-
-{markdown_table(year_table, ["year", "records"], float_digits=0)}
-
-## 3. 特徵工程
-
-本專案使用的欄位可分為四類：
-
-| 類別 | 欄位 |
-|---|---|
-| 目標變數 | `site_eui_kbtu_sq_ft` |
-| 空間特徵 | `community_area_clean`, `zip_code_clean`, `latitude`, `longitude`, community-year building count, community-year average floor area |
-| 時間特徵 | `data_year`, `years_since_2018`, `regulation_stage`, `prev_year_site_eui`, `prior_building_mean_eui` |
-| 建物特徵 | `primary_property_type_clean`, `gross_floor_area_buildings_sq_ft`, `log_floor_area`, `year_built`, `building_age`, `of_buildings` |
-
-額外建立的 spatio-temporal features 包含：
-
-1. `prev_year_site_eui`：同一棟建築前一年的 EUI。
-2. `prior_building_mean_eui`：同一棟建築過去年份的平均 EUI。
-3. `prior_community_mean_eui`：同一 community area 過去年份的平均 EUI。
-4. `prior_property_type_mean_eui`：同一 building type 過去年份的平均 EUI。
-5. `prior_comm_property_mean_eui`：同一 community area 與 building type 組合的歷史平均 EUI。
-6. `prior_community_high_eui_ratio`：同一 community area 過去年份中高 EUI 建築比例。
-7. `community_year_record_count`：同一年同 community area 的資料筆數。
-8. `community_year_building_count`：同一年同 community area 的建築數。
-9. `community_year_avg_floor_area`：同一年同 community area 的平均樓地板面積。
-10. `property_year_record_count`：同一年同 building type 的資料筆數。
-
-所有歷史平均與比例都只使用該筆資料年份以前的資訊，避免把同年度或未來資料洩漏到特徵中。
-
-## 4. Baseline 與模型
-
-資料切分方式：
-
-| Split | 年份 | 用途 |
-|---|---|---|
-| Train | 2018-2021 | 訓練 baseline 與模型 |
-| Validation | 2022 | random search fine tuning |
-| Test | 2023 | 只做最後評估 |
-
-Baseline：
-
-1. **Global Mean Baseline**：全部預測訓練資料的平均 Site EUI。
-2. **Group Mean Baseline**：依 `community_area + primary_property_type` 的歷史平均 Site EUI 預測，若該組合不存在，依序 fallback 到 building type、community、global mean。
-3. **Ridge Regression**：線性模型 baseline，類別欄位 one-hot encoding，數值欄位 median imputation 與 standardization。
-
-進階模型：
-
-1. **Random Forest Regressor**
-2. **XGBoost Regressor**
-
-Hyperparameter tuning 使用 random search。原因是 tree-based models 的參數組合很多，random search 可以在有限時間內探索較多有效區域，不需要像 grid search 一樣窮舉所有組合。
-
-Model selected by validation RMSE: **{best_model_name}**
-
-Best parameters:
-
-```json
-{json.dumps(best_params[best_model_name], indent=2, ensure_ascii=False)}
-```
-
-Random search 最佳結果摘要：
-
-{markdown_table(tuning_results.groupby("model").head(3), ["model", "iteration", "validation_rmse", "validation_mae", "validation_r2", "params"], float_digits=4)}
-
-## 5. 模型評估結果
-
-Validation results:
-
-{markdown_table(validation_metrics.sort_values("rmse"), ["model", "rmse", "mae", "r2"], float_digits=4)}
-
-Test results:
-
-{markdown_table(test_metrics.sort_values("rmse"), ["model", "rmse", "mae", "r2"], float_digits=4)}
-
-依 validation RMSE 選出的模型 **{best_model_name}** 在 test set 相對於 Group Mean Baseline：
-
-- RMSE 改善約 **{selected_rmse_improvement:.2f}%**
-- MAE 改善約 **{selected_mae_improvement:.2f}%**
-
-Test set 中 RMSE 最低的模型是 **{best_test_overall["model"]}**，相對於 Group Mean Baseline：
-
-- RMSE 改善約 **{best_test_rmse_improvement:.2f}%**
-- MAE 改善約 **{best_test_mae_improvement:.2f}%**
-
-需要注意的是，模型選擇應以 validation set 為準，不能因為 test set 結果再回頭選模型或調參。因此本報告同時呈現 validation-selected model 與 test-best model，並把 test set 視為最終泛化能力檢查。
-
-本次輸出的評估圖表：
-
-- `outputs/plots/actual_vs_predicted_test.png`：實際值 vs 預測值。
-- `outputs/plots/residual_analysis_test.png`：residual vs prediction 與 residual distribution。
-- `outputs/plots/community_error_mae_top15.png`：test set 中 community area 的 MAE 比較。
-- `outputs/plots/building_type_error_mae_top15.png`：test set 中 building type 的 MAE 比較。
-- `outputs/plots/feature_importance_top20.png`：最佳 tree model 的 feature importance。
-
-## 6. Community Area 誤差分析
-
-以下表格列出 test set 中平均 EUI 較高的 community area。`bias_mean_pred_minus_actual` 若為負值，代表模型平均低估該區 EUI。
-
-{markdown_table(top_communities_actual, ["community_area_clean", "n", "actual_mean_eui", "mae", "bias_mean_pred_minus_actual"], float_digits=3)}
-
-MAE 最高的 community area：
-
-{markdown_table(community_error.head(10), ["community_area_clean", "n", "actual_mean_eui", "predicted_mean_eui", "rmse", "mae", "bias_mean_pred_minus_actual"], float_digits=3)}
-
-## 7. Building Type 誤差分析
-
-以下表格列出 test set 中平均 EUI 較高的 building type。
-
-{markdown_table(top_types_actual, ["primary_property_type_clean", "n", "actual_mean_eui", "mae", "bias_mean_pred_minus_actual"], float_digits=3)}
-
-MAE 最高的 building type：
-
-{markdown_table(building_error.head(10), ["primary_property_type_clean", "n", "actual_mean_eui", "predicted_mean_eui", "rmse", "mae", "bias_mean_pred_minus_actual"], float_digits=3)}
-
-## 8. Feature Importance 分析
-
-依 validation RMSE 選出的 tree model 的前 15 個重要特徵如下：
-
-{markdown_table(feature_importance.head(15), ["feature", "importance"], float_digits=4)}
-
-整體而言，模型主要依賴歷史 EUI、建物類型、建物面積與地理區位資訊。這符合都市能源使用的直覺：建築用途決定能源需求型態，建物規模與年份反映實體條件，而 community area 與座標則捕捉空間上的社經、建築密度與區域使用型態差異。
-
-## 9. Urban Insight
-
-1. **建築類型是能源使用強度的重要因素。** 不同 building type 的 EUI 差異很大，例如醫療、實驗室、宿舍、旅館、超市等通常有較高能源需求。這表示節能政策不應只用單一標準，而應依 building type 設定不同 benchmark。
-
-2. **空間差異存在，且模型在部分 community area 誤差較大。** Community-level error analysis 可以幫助市政府找出模型較不穩定或能源表現較特殊的地區。這些區域可能需要更多資料欄位，例如 occupancy、HVAC system、建築翻修狀態或更細的土地使用資料。
-
-3. **歷史能源表現對預測有幫助。** `prev_year_site_eui`、`prior_building_mean_eui`、community/property type historical mean 等特徵若重要，代表建築能源使用具有時間延續性。對政策而言，過去多年持續高 EUI 的建築比單一年異常值更值得優先稽核。
-
-4. **Baseline comparison 很重要。** 若進階模型只比 global mean 好，代表模型沒有真正學到細緻模式；若能明顯超過 group mean baseline，才表示模型有捕捉到更複雜的時空與建物特徵交互作用。
-
-## 10. 成果分析與限制
-
-本專案符合 proposal 的核心要求：使用 spatio-temporal data mining，任務定義為 regression，建立至少一個 baseline，使用 RMSE、MAE、R² 評估，並額外檢查 spatial error。
-
-報告與資料限制：
-
-1. **時間解析度限制。** 資料是年度資料，無法分析季節、月份、天氣事件或日夜用電差異。
-2. **非 trajectory data。** 建築物位置固定，因此 map matching 不適用；本研究屬於 point-based spatial static and temporal dynamic data。
-3. **缺少重要外部變數。** 資料沒有直接提供 occupancy、營業時間、設備效率、HVAC 系統、翻修紀錄、即時天氣等資訊，因此模型可能無法完整解釋 EUI 差異。
-4. **Self-reporting error。** Benchmarking 資料可能有申報錯誤或填報品質差異，所以即使已移除 outliers，仍可能存在噪音。
-5. **樣本不均衡。** Multifamily Housing、Office、K-12 School 等類型樣本較多，少數 building type 的模型誤差可能較不穩定。
-6. **Spatial bias。** 某些 community area 樣本多、某些樣本少，模型可能在資料稀少區域表現較差。
-7. **Leakage 欄位必須排除。** 若使用 electricity use、natural gas use、GHG emissions 或 ENERGY STAR score 來預測 Site EUI，會讓模型看起來表現很好，但因為這些欄位與目標高度同源，不適合作為真實預測情境的輸入。
-
-## 11. 結論
-
-本研究建立了 Chicago building energy intensity 的 spatio-temporal regression workflow，包含資料清理、outlier 處理、leakage 排除、歷史與空間特徵工程、baseline comparison、Random Forest/XGBoost random search tuning，以及 test year 2023 的最終評估。
-
-依 validation RMSE 選出的模型為 **{best_model_name}**，在 test set 的結果為 RMSE = **{selected_test["rmse"]:.4f}**、MAE = **{selected_test["mae"]:.4f}**、R² = **{selected_test["r2"]:.4f}**。另外，test set 上 RMSE 最低的是 **{best_test_overall["model"]}**，RMSE = **{best_test_overall["rmse"]:.4f}**、MAE = **{best_test_overall["mae"]:.4f}**、R² = **{best_test_overall["r2"]:.4f}**。此結果可以用來協助城市管理者初步識別高能源使用強度的建築類型與地區，並作為後續節能稽核或政策分區管理的資料基礎。
-"""
-
-    report_path.write_text(report, encoding="utf-8")
-
 
 def main() -> None:
     random.seed(RANDOM_STATE)
@@ -953,17 +722,18 @@ def main() -> None:
         encoding="utf-8",
     )
 
-    write_report(
-        summary=summary,
-        validation_metrics=validation_metrics,
-        test_metrics=test_metrics,
-        best_params=best_params,
-        best_model_name=best_model_name,
-        community_error=community_error,
-        building_error=building_error,
-        feature_importance=feature_importance,
-        tuning_results=tuning_results.sort_values(["model", "validation_rmse"]),
-    )
+    if write_main_report is not None:
+        write_main_report(
+            summary=summary,
+            validation_metrics=validation_metrics,
+            test_metrics=test_metrics,
+            best_params=best_params,
+            best_model_name=best_model_name,
+            community_error=community_error,
+            building_error=building_error,
+            feature_importance=feature_importance,
+            tuning_results=tuning_results.sort_values(["model", "validation_rmse"]),
+        )
 
     print("Done.")
     print(f"Best model by validation RMSE: {best_model_name}")

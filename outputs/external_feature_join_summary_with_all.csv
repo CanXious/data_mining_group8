@@ -1,6 +1,0 @@
-﻿feature_set,matched_rows,matched_row_rate,matched_unique_addresses,unique_addresses,recent_permit_rows,recent_permit_row_rate,weather_matched_rows,weather_matched_row_rate,footprint_matched_rows,footprint_matched_row_rate,permit_matched_rows,permit_matched_row_rate
-base,15177,1.0,,,,,,,,,,
-weather,15177,1.0,,,,,,,,,,
-footprints,11481,0.7564736113856494,3085.0,4248.0,,,,,,,,
-permits,10706,0.7054095012189497,,,9613.0,0.6333926335903011,,,,,,
-all_external,15177,1.0,,,9613.0,0.6333926335903011,15177.0,1.0,11481.0,0.7564736113856494,10706.0,0.7054095012189497

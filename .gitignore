@@ -1,19 +1,9 @@
 __pycache__/
 *.py[cod]
-.ipynb_checkpoints/
 .venv/
 venv/
-
-# Raw data is downloaded by the analysis script.
-data/raw/
-
-# Document-generation scripts are kept local; the repository tracks the generated reports.
-document_generation/
-src/export_report_pdf.py
-
-# Intermediate files.
-outputs/*_partial.csv
-
-# Local/editor files.
 .DS_Store
 Thumbs.db
+outputs/
+reports/
+*.log
