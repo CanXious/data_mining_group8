@@ -89,7 +89,3 @@ pip install -r requirements.txt
 ```
 
 Run commands from the repository root.
-
-## Notes
-
-The main model code no longer requires the local report-generation module. If that module is unavailable, the model still writes metrics, predictions, feature importance, and plots.
